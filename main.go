@@ -7,11 +7,17 @@ import (
 
 	"github.com/d1vshar/splitgo/api"
 	"github.com/d1vshar/splitgo/core"
+	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		panic("Error loading .env file")
+	}
+
 	e := echo.New()
 
 	var baseG = e.Group("/api/v1")
