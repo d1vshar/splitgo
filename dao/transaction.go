@@ -14,7 +14,8 @@ import (
 )
 
 type TransactionParticipantJsonAgg struct {
-	Amount        float64    `json:"amount"`
+	AmountPaid    float64    `json:"amount_paid"`
+	AmountDue     float64    `json:"amount_due"`
 	CreatedAt     time.Time  `json:"created_at"`
 	CreatedBy     *string    `json:"created_by"`
 	DeletedAt     *time.Time `json:"deleted_at"`
@@ -45,6 +46,8 @@ func (dao AppDao) GetTransactionsForUser(user_id string) (transactions []model.T
 				_trxs_participants
 			WHERE
 				_trxs_participants.user_id = ?
+			AND
+      	(_trxs_participants.amount_paid > 0 OR _trxs_participants.amount_due > 0)
 		)
 		AND _trxs_participants.deleted_at IS NULL
 		AND _trxs.deleted_at IS NULL
@@ -53,7 +56,7 @@ func (dao AppDao) GetTransactionsForUser(user_id string) (transactions []model.T
 
 	defer rows.Close()
 	for rows.Next() {
-		var jsonAggResult string
+		var jsonAggResult, timestamp string
 		var id, created_at, updated_at, deleted_at, category_id sql.NullString
 		var transaction model.Transaction
 
@@ -67,6 +70,7 @@ func (dao AppDao) GetTransactionsForUser(user_id string) (transactions []model.T
 			&transaction.Meta.UpdatedBy,
 			&transaction.Description,
 			&category_id,
+			&timestamp,
 			&transaction.Amount,
 		)
 
@@ -117,6 +121,8 @@ func (dao AppDao) GetTransactionsForUser(user_id string) (transactions []model.T
 			transaction.Meta.DeletedAt = nil
 		}
 
+		transaction.Timestamp, _ = time.Parse(time.RFC3339, timestamp)
+
 		var participants []TransactionParticipantJsonAgg
 		// unmarshal json
 		if err := json.Unmarshal([]byte(jsonAggResult), &participants); err != nil {
@@ -146,6 +152,9 @@ func (dao AppDao) CreateNewTransaction(user_id string, payload *dto.Transasction
 		return nil, errors.New("invalid category id")
 	}
 
+	// no need to check for error. ValdiateTrxPayload already checks that
+	trx_time, _ := time.Parse(time.RFC3339, payload.Transaction.Timestamp)
+
 	// db transaction
 	tx := dao.db.Begin()
 
@@ -154,6 +163,7 @@ func (dao AppDao) CreateNewTransaction(user_id string, payload *dto.Transasction
 		CategoryID:  payload.Transaction.CategoryID,
 		Category:    category,
 		Amount:      payload.Transaction.Amount,
+		Timestamp:   trx_time,
 		Meta: config.BaseModel{
 			CreatedBy: &user_id,
 		},
@@ -161,8 +171,9 @@ func (dao AppDao) CreateNewTransaction(user_id string, payload *dto.Transasction
 
 	newTrx.TransactionParticipants = util.Transform(payload.TransactionParticipants, func(p dto.NewTransactionParticipant) model.TransactionParticipant {
 		return model.TransactionParticipant{
-			UserID: p.UserID,
-			Amount: p.Amount,
+			UserID:     p.UserID,
+			AmountDue:  p.AmountDue,
+			AmountPaid: p.AmountPaid,
 		}
 	})
 
@@ -191,6 +202,9 @@ func (dao AppDao) UpdateTransaction(trx_id uuid.UUID, user_id string, payload *d
 		return nil, errors.New("invalid category id")
 	}
 
+	// no need to check for error. ValdiateTrxPayload already checks that
+	trx_time, _ := time.Parse(time.RFC3339, payload.Transaction.Timestamp)
+
 	// db transaction
 	t := dao.db.Begin()
 
@@ -216,6 +230,7 @@ func (dao AppDao) UpdateTransaction(trx_id uuid.UUID, user_id string, payload *d
 	o_trx.Category = category
 	o_trx.Amount = payload.Transaction.Amount
 	o_trx.Meta.UpdatedBy = &user_id
+	o_trx.Timestamp = trx_time
 
 	// update existing participants and add new ones
 	existingParticipants := make(map[string]bool)
@@ -228,15 +243,17 @@ func (dao AppDao) UpdateTransaction(trx_id uuid.UUID, user_id string, payload *d
 			// Update existing participant contribution
 			for i, participant := range o_trx.TransactionParticipants {
 				if participant.UserID == newParticipant.UserID {
-					o_trx.TransactionParticipants[i].Amount = newParticipant.Amount
+					o_trx.TransactionParticipants[i].AmountPaid = newParticipant.AmountPaid
+					o_trx.TransactionParticipants[i].AmountDue = newParticipant.AmountDue
 					break
 				}
 			}
 		} else {
 			// Add new participant
 			o_trx.TransactionParticipants = append(o_trx.TransactionParticipants, model.TransactionParticipant{
-				UserID: newParticipant.UserID,
-				Amount: newParticipant.Amount,
+				UserID:     newParticipant.UserID,
+				AmountPaid: newParticipant.AmountPaid,
+				AmountDue:  newParticipant.AmountDue,
 			})
 		}
 	}
@@ -335,7 +352,8 @@ func convert_json_agg_to_transaction_participants(json_agg []TransactionParticip
 			},
 			TransactionID: trx_id,
 			UserID:        p.UserID,
-			Amount:        p.Amount,
+			AmountDue:     p.AmountDue,
+			AmountPaid:    p.AmountPaid,
 		})
 	}
 
