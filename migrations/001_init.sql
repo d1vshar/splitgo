@@ -21,7 +21,8 @@ CREATE TABLE "_trxs" (
   "updated_by" text NULL,
   "description" text NULL,
   "category_id" uuid NULL,
-  "amount" numeric NULL,
+  "timestamp" timestamptz NOT NULL,
+  "amount" numeric NOT NULL,
   PRIMARY KEY ("id"),
   CONSTRAINT "fk_public__trxs_category" FOREIGN KEY ("category_id") REFERENCES "_categories" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION
 );
@@ -39,7 +40,8 @@ CREATE TABLE "_trxs_participants" (
   "updated_by" text NULL,
   "transaction_id" uuid NOT NULL,
   "user_id" text NOT NULL,
-  "amount" numeric NULL,
+  "amount_paid" numeric NOT NULL,
+  "amount_due" numeric NOT NULL,
   PRIMARY KEY ("id"),
   CONSTRAINT "fk_public__trxs_transaction_participants" FOREIGN KEY ("transaction_id") REFERENCES "_trxs" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION
 );
